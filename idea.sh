@@ -1,5 +1,7 @@
 lsResult=""
+lsOutput=""
 filename=""
+resultCount=0
 
 function doLs() {
 	lsResult=`awk -v FNR=1 -v p="$@" '
@@ -20,6 +22,8 @@ function doLs() {
 		}
 	}
 	{nextfile}' * | sort -k2`
+
+	resultCount=`echo "$lsResult" | wc -l`
 }
 
 function doLsColor() {
@@ -28,7 +32,7 @@ function doLsColor() {
 	local blue='\033[01;34m'
 	local none='\033[0m'
 
-	lsResult=`echo "$lsResult" | awk -v g=$green -v y=$yellow -v b=$blue -v n=$none '
+	lsOutput=`echo "$lsResult" | awk -v g=$green -v y=$yellow -v b=$blue -v n=$none '
 	{
 		if ($2 ~ /^\(A\)$/) { printf y$0n"\n" }
 		else if ($2 ~ /^\(B\)$/) { printf g$0n"\n" }
@@ -73,7 +77,7 @@ function doEdit() {
 
 function doBrowse() {
 	local IFS=$'\n'
-	select choice in $lsResult; do
+	select choice in $lsOutput; do
 		num=`echo "$lsResult" | head -n $REPLY | tail -n 1 | awk '{print $1}'`
 		doFind $num
 		break;
@@ -84,7 +88,8 @@ function doBrowse() {
 }
 
 function printLs() {
-	echo "$lsResult"
+	echo "Found $resultCount results:\n"
+	echo "$lsOutput"
 }
 
 command=$1
@@ -102,7 +107,7 @@ case "$command" in
 	"a"|"add" ) doAdd $@;;
 	"p"|"pri" ) doFind $1 && doPri $2;;
 
-	"b"|"browse" ) doLs $@ && doBrowse;;
+	"b"|"browse" ) doLs $@ && doLsColor && doBrowse;;
 	"o"|"open" ) doFind $1 && doEdit;;
 	"u"|"unpri" ) doFind $1 && doUnpri;;
 	"n"|"new" ) doNew $@;;
