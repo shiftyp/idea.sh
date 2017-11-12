@@ -62,16 +62,18 @@ command=$1
 shift
 
 case "$command" in
+	"c"|"config" ) ;; # Configuration
+
 	"l"|"ls" ) doLs $@ && printLs;;
-	"e"|"enum" ) ;;
+	"e"|"enum" ) ;; # Enumerates idea types
 	"a"|"add" ) doAdd $@;;
-	"p"|"pri" ) findFile $1 && doPri $2
-		;;
+	"p"|"pri" ) findFile $1 && doPri $2;;
+
 	"b"|"browse" ) doLs $@ && doBrowse;;
 	"o"|"open" ) findFile $1 && doEdit;;
-	"u"|"unpri" ) ;;
-	"n"|"newtype" ) ;;
-	"d"|"depri" ) ;;
-	"s"|"stat" ) ;;
+	"u"|"unpri" ) ;; # Unprioritizes a task
+	"n"|"newtype" ) ;; # Creates a new idea type
+	"d"|"del" ) ;; # Deletes an idea
+	"s"|"stat" ) ;; # Displays statistics
 esac
 	
