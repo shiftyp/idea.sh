@@ -1,5 +1,21 @@
 #! /usr/bin/env zsh
 
+platform='unknown'
+unamestr=`uname`
+
+if [[ "$unamestr" == 'Linux' ]]; then
+   platform='linux'
+elif [[ "$unamestr" == 'Darwin' ]]; then
+   platform='freebsd'
+fi
+
+if [[ "$platform" == "freebsd" ]]; then
+	alias awk=gawk
+	alias sedInPlace="sed -i '' "
+else
+	alias sedInPlace="sed -i "
+fi
+ 
 green='\033[01;32m'
 yellow='\033[01;33m'
 blue='\033[01;34m'
@@ -21,7 +37,7 @@ function mkSubdir() {
 }
 
 function doLs() {
-	lsResult="$(awk -v FNR=1 -v p="$@" '
+	lsResult="$(awk -v FNR=1 -v p="${@}" '
 	{
 		m=1
 		split(p, patterns, " ")
@@ -40,23 +56,23 @@ function doLs() {
 	}
 	{nextfile}' "${findResults[@]}" | sort -k2)"
 
-	resultCount=`echo "$lsResult" | wc -l`
+	resultCount=`echo "$lsResult" | sed '/^\s*$/d' | wc -l`
 }
 
 function doLsColor() {
 	lsOutput=`echo "$lsResult" | awk -v g=$green -v y=$yellow -v b=$blue -v p=$purple -v m=$magenta -v n=$none '
 	function printTokens(c)
 	{
-		$0=gensub(/ ([\+][^ ]+)/," "m"\\\1"c, "g", $0)
-		$0=gensub(/ ([@][^ ]+)/," "p"\\\1"c, "g", $0)
-		printf c$0n"\n"
+		$0=gensub(/ ([\+][^ ]+)/,"\t"m"\\\1"c, "g", $0)
+		$0=gensub(/ ([@][^ ]+)/,"\t"p"\\\1"c, "g", $0)
+		printf $1" "c""substr($0, length($1) + 2)""n"\n"
 	}
 	{
 		if ($2 ~ /^\(A\)$/) { printTokens(y) }
 		else if ($2 ~ /^\(B\)$/) { printTokens(g) }
 		else if ($2 ~ /^\(C\)$/) { printTokens(b) }
 		else {printTokens(n)}
-	}'`
+	}' | column -s$'\t' -tx`
 }
 
 function doFind() {
@@ -87,14 +103,14 @@ function doNew() {
 }
 
 function replacePri() {
-	sed -E -i -e "1s/^# (\([A-Z]\) )?/# $1/" ./$filename
+	sedInPlace -E -e "1s/^# (\([A-Z]\) )?/# $1/" ./$filename
 }
 
 function doPri() {
-	local pri=`awk -v pri=$1 'BEGIN { pri=toupper(pri); if (pri ~ /^[A-Z]$/) {print pri} }'`
+	local pri=`awk -v pri=$1 'BEGIN { if (toupper(pri) ~ /^[A-Z]$/) { print toupper(pri)} }'`
 
 	if [ -n "$pri" ]; then
-	 	replacePri "($1) "
+	 	replacePri "($pri) "
 	else
 		echo "Priority must be a letter A-Z"
 	fi
@@ -140,15 +156,17 @@ function doEdit() {
 }
 
 function doBrowse() {
-	local IFS=$'\n'
-	select choice in $lsOutput; do
-		num=`echo "$lsResult" | head -n $REPLY | tail -n 1 | awk '{print $1}'`
-		doFindFile $num
-		break;
-	done
-	less +gg $filename
-	echo "\n"
-	doBrowse
+	printf "\033c"
+	doFind
+	doLs $@
+	doLsColor
+	echo "IDEA: Browsing $@"
+	echo "--"
+	printLs
+	printf "💡  "$blue"❯"$none" "
+	read
+	doCommand ${=REPLY}
+	doBrowse $@
 }
 
 function doDelete() {
@@ -162,16 +180,16 @@ function doDelete() {
 		rm $filename
 		echo "Deleted $filename"
 	fi
-	
 }
 
 function printLs() {
-	echo "Found $resultCount results:\n"
 	echo "$lsOutput"
+	echo "--"
+	echo "IDEA: $resultCount of $allCount ideas shown\n"
 }
 
 function doStats() {
-	stats=$(echo "$lsResult" | awk -v p=$purple -v m=$magenta -v n=$none '
+	stats=$(echo "$lsResult" | awk -v allCount=$allCount '
 		{
 			split($0, tokens, " ")
 			for (i=0; i < length(tokens); i++) {
@@ -182,41 +200,63 @@ function doStats() {
 		}
 		END {
 			print ""
-			for (tag in projects) print projects[tag], m""tag""n
-			for (tag in contexts) print contexts[tag], p""tag""n
+			for (tag in projects) print projects[tag], tag
+			for (tag in contexts) print contexts[tag], tag
+			print "IDEA:", allCount, "Ideas", length(projects), "+Projects", length(contexts), "@Contexts"
 		}
 	' | sort -nrk 1,1)
-	echo "$stats"
+
+	local lastLine="$(echo "$stats" | tail -1)"
+	local rest=$(echo $stats | sed \$d | column -x)
+
+	echo "$rest"$'\n'"--"$'\n'"$lastLine" | awk -v p=$purple -v m=$magenta -v n=$none '
+		{
+			$0=gensub(/([\+][^ \t]+)/, m"\\1"n, "g", $0)
+			$0=gensub(/([@][^ \t]+)/, p"\\1"n, "g", $0)
+			print $0
+		}
+	';
 }
 
 function doAppend() {
 	echo $filename
-	sed -E -i -e "1s/(.+)/\\1 $1/" ./$filename
+	sedInPlace -E -e "1s/(.+)/\\1 $1/" ./$filename
 }
 
-command=$1
+function doCommand() {
+	command=$1
 
-shift
+	shift
 
-case "$command" in
+	# TODO: Do flags
 
-	"i"|"incpri" ) doFind && doFindFile $1 && doIncpri;; # Increment Priority
+	case "$command" in
 
-	"l"|"ls" ) doFind && doLs $@ && doLsColor && printLs;;
-	"e"|"enum" ) ;; # Enumerates idea types
-	"a"|"append" ) doFind && doFindFile $1 && doAppend $2;; # Appends to the title
-	"p"|"pri" ) doFind && doFindFile $1 && doPri $2;;
+		"i"|"incpri" ) doFind && doFindFile $1 && doIncpri;; # Increment Priority
 
-	"b"|"browse" ) doFind && doLs $@ && doLsColor && doBrowse;;
-	"o"|"open" ) doFind && doFindFile $1 && doEdit;;
-	"u"|"unpri" ) doFind && doFindFile $1 && doUnpri;;
-	"n"|"new" ) mkSubdir && doNew $@;;
-	"d"|"depri" ) doFind && doFindFile $1 && doDepri;;
-	"s"|"stat" ) doFind && doLs && doStats;; # Displays statistics
+		"g" ) ;;
+		"r"|"replace" ) ;; # Replaces a title
+		"w" ) ;;
 
-	"config" ) ;; # Configuration
-	"newtype" ) ;; # Creates a new idea type
-	"deltype" ) ;; # Deletes an idea type
-	"delete" ) doFind && doFindFile $1 && doDelete;;
-esac
+		"l"|"ls" ) doFind && doLs ${@} && doLsColor && printLs;;
+		"e"|"enum" ) ;; # Enumerates idea types
+		"a"|"append" ) doFind && doFindFile $1 && doAppend $2;; # Appends to the title
+		"p"|"pri" ) doFind && doFindFile $1 && doPri $2;;
+		"s"|"stat" ) doFind && doLs ${@} && doStats;; # Displays statistics
+
+		"b"|"browse" ) doBrowse $@;;
+		"o"|"open" ) doFind && doFindFile $1 && doEdit;;
+		"u"|"unpri" ) doFind && doFindFile $1 && doUnpri;;
+		"n"|"new" ) mkSubdir && doNew $@;;
+		"d"|"depri" ) doFind && doFindFile $1 && doDepri;;
+		"ss"|"snapstat" ) ;; # Snapshots statistics
+		
+		"config" ) ;; # Configuration
+		"newtype" ) ;; # Creates a new idea type
+		"deltype" ) ;; # Deletes an idea type
+		"delete" ) doFind && doFindFile $1 && doDelete;;
+	esac
+}
+
+doCommand $@
 	
