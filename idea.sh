@@ -1,7 +1,8 @@
-#! /usr/bin/env zsh
+#! /usr/local/bin/bash
 
 platform='unknown'
 unamestr=`uname`
+browseCommands=()
 
 if [[ "$unamestr" == 'Linux' ]]; then
    platform='linux'
@@ -15,13 +16,15 @@ if [[ "$platform" == "freebsd" ]]; then
 else
 	alias sedInPlace="sed -i "
 fi
- 
+
 green='\033[01;32m'
 yellow='\033[01;33m'
 blue='\033[01;34m'
 purple='\033[01;35m'
 magenta='\033[01;31m'
+grey='\033[01;08m'
 none='\033[0m'
+reset='\033c'
 
 subdir="$(date +'%Y/%m/%d')"
 allCount=0
@@ -37,13 +40,14 @@ function mkSubdir() {
 }
 
 function doLs() {
-	lsResult="$(awk -v FNR=1 -v p="${@}" '
+	patterns=$(echo "$@" | sed 's/ /|/g')
+	lsResult="$(awk -v FNR=1 -v p=$patterns '
 	{
 		m=1
-		split(p, patterns, " ")
+		split(p, patterns, "|")
 		for (i=0; i < length(patterns) && m==1; i++) {
 			pattern=patterns[i]
-			if (pattern ~ /^-/) { 
+			if (pattern ~ /^-/) {
 				if($0 ~ substr(pattern, 2)) { m=0 }
 			} else {
 				if($0 !~ pattern) { m=0 }
@@ -60,25 +64,26 @@ function doLs() {
 }
 
 function doLsColor() {
-	lsOutput=`echo "$lsResult" | awk -v g=$green -v y=$yellow -v b=$blue -v p=$purple -v m=$magenta -v n=$none '
+	lsOutput=`echo "$lsResult" | awk -v g=$green -v y=$yellow -v b=$blue -v p=$purple -v m=$magenta -v gg=$grey -v n=$none '
 	function printTokens(c)
 	{
-		$0=gensub(/ ([\+][^ ]+)/,"\t"m"\\\1"c, "g", $0)
-		$0=gensub(/ ([@][^ ]+)/,"\t"p"\\\1"c, "g", $0)
-		printf $1" "c""substr($0, length($1) + 2)""n"\n"
+		res=substr($0, length($1) + 2)
+		res=gensub(/^(\(([A-Z])\))?/, "(\\\2)\t", "g", res)
+		res=gensub(/^\(\)/, "(_)", "g", res)
+		res=gensub(/ ([\+][^ ]+)/,"\t"m"\\\1"c, "g", res)
+		res=gensub(/ ([@][^ ]+)/,"\t"p"\\\1"c, "g", res)
+		printf $1"\t"c""res""n"\n"
 	}
 	{
 		if ($2 ~ /^\(A\)$/) { printTokens(y) }
 		else if ($2 ~ /^\(B\)$/) { printTokens(g) }
 		else if ($2 ~ /^\(C\)$/) { printTokens(b) }
-		else {printTokens(n)}
+		else {printTokens(gg)}
 	}' | column -s$'\t' -tx`
 }
 
 function doFind() {
-	setopt nullglob
-	findResults=(./**/*.md)
-	unsetopt nullglob
+	findResults=($(find ./ -name "*.md" | sed '/^\s*$/d'))
 
 	allCount="${#findResults[@]}"
 
@@ -89,7 +94,7 @@ function doFind() {
 }
 
 function doFindFile() {
-	filename="${findResults[$1]}"
+	filename="${findResults[$1 - 1]}"
 }
 
 function doNew() {
@@ -97,13 +102,18 @@ function doNew() {
 	title+=$'\n'
 	title+=$'\n'
 	local newFilename="$(date +'%H.%M.%S').md"
-	
+
 	echo "$title" > $subdir/$newFilename
 	vim +3 $subdir/$newFilename
 }
 
 function replacePri() {
 	sedInPlace -E -e "1s/^# (\([A-Z]\) )?/# $1/" ./$filename
+}
+
+function replace() {
+	title=$(echo "$@" | sed 's/\n//g')
+	sedInPlace -E -e "1s/^# (\([A-Z]\))? .+$/# \\1 $title/" ./$filename
 }
 
 function doPri() {
@@ -155,24 +165,79 @@ function doEdit() {
 	$EDITOR $filename
 }
 
+function printBrowsePrompt() {
+	local pre=""
+
+	if [[ "$1" == "true" ]]; then
+		pre+="\033[1K\r"
+	fi
+
+	shift
+
+	local prettyCom=$(echo "$@" | awk -v m=$magenta -v p=$purple -v spaceChar=$'\e0' '
+		{
+			$0=gensub(spaceChar, " ", "g", $0)
+			$0=gensub(/([\+][^ ]+)/, m"\\1"n, "g", $0)
+			$0=gensub(/([@][^ ]+)/, p"\\1"n, "g", $0)
+			print $0
+		}
+	')
+	printf $pre"💡  "$blue"❯"$none" $prettyCom"
+}
+
 function doBrowse() {
-	printf "\033c"
+	local commandIndex=${#browseCommands[@]}
+	local newChar=""
+	local lastChar=""
+	local com=""
+	local prettyArgs=$(echo "$@" | awk -v m=$magenta -v p=$purple -v n=$none -v spaceChar=$'\e0' '
+		{
+			$0=gensub(spaceChar, " ", "g", $0)
+			$0=gensub(/([\+][^ ]+)/, m"\\1"n, "g", $0)
+			$0=gensub(/([@][^ ]+)/, p"\\1"n, "g", $0)
+			print $0
+		}
+	')
+
+	printf $reset
 	doFind
 	doLs $@
 	doLsColor
-	echo "IDEA: Browsing $@"
+	echo "IDEA: Browsing $prettyArgs"
 	echo "--"
 	printLs
-	printf "💡  "$blue"❯"$none" "
-	read
-	doCommand ${=REPLY}
-	doBrowse $@
+	echo
+
+	printBrowsePrompt "false" $com
+
+	while IFS= read -r -n 1 -s newChar ; do
+		if [ -z "$newChar" ]; then
+			break
+		elif [[ $newChar == $'\x7f' ]]; then
+			if [ ! -z $com ]; then
+				com=${com::-1}
+			fi
+		elif [[ "$newChar" == " " ]]; then
+			com+=$'\e0'
+		else
+			com+=$newChar
+		fi
+		lastChar=$newChar
+		printBrowsePrompt "true" "$com"
+	done
+	local IFS=$'\e0'
+	args=($com)
+	IFS=$'\n'
+	case ${args[1]} in
+		"b"|"browse"|"l"|"ls" ) doBrowse ${args[@]} ;;
+		* ) doCommand ${args[@]} && doBrowse $@ ;;
+	esac
 }
 
 function doDelete() {
 	local title=`head -n 1 $filename | awk '{print substr($0, 3)}'`
 
-	echo "Are you sure you want to delete $title? " 
+	echo "Are you sure you want to delete $title? "
 	read -r
 	echo
 	if [[ $REPLY =~ ^[Yy]$ ]]
@@ -219,8 +284,23 @@ function doStats() {
 }
 
 function doAppend() {
-	echo $filename
 	sedInPlace -E -e "1s/(.+)/\\1 $1/" ./$filename
+}
+
+function doWatch() {
+	if [ -n "$(find ./ -type f -mtime 1s)" ]; then
+		watchOutput $@
+	fi
+
+	sleep 1
+	doWatch $@
+}
+
+function watchOutput() {
+	printf $reset
+	echo "IDEA: Watching $@"
+	echo "--"
+	doFind && doLs $@ && doLsColor && printLs
 }
 
 function doCommand() {
@@ -235,14 +315,14 @@ function doCommand() {
 		"i"|"incpri" ) doFind && doFindFile $1 && doIncpri;; # Increment Priority
 
 		"g" ) ;;
-		"r"|"replace" ) ;; # Replaces a title
-		"w" ) ;;
+		"r"|"replace" ) doFind && doFindFile $1 && replace $@;; # Replaces a title
+		"w"|"watch" ) watchOutput $@ && doWatch $@;;
 
-		"l"|"ls" ) doFind && doLs ${@} && doLsColor && printLs;;
+		"l"|"ls" ) doFind && doLs $@ && doLsColor && printLs;;
 		"e"|"enum" ) ;; # Enumerates idea types
 		"a"|"append" ) doFind && doFindFile $1 && doAppend $2;; # Appends to the title
 		"p"|"pri" ) doFind && doFindFile $1 && doPri $2;;
-		"s"|"stat" ) doFind && doLs ${@} && doStats;; # Displays statistics
+		"s"|"stat" ) doFind && doLs $@ && doStats;; # Displays statistics
 
 		"b"|"browse" ) doBrowse $@;;
 		"o"|"open" ) doFind && doFindFile $1 && doEdit;;
@@ -250,7 +330,7 @@ function doCommand() {
 		"n"|"new" ) mkSubdir && doNew $@;;
 		"d"|"depri" ) doFind && doFindFile $1 && doDepri;;
 		"ss"|"snapstat" ) ;; # Snapshots statistics
-		
+
 		"config" ) ;; # Configuration
 		"newtype" ) ;; # Creates a new idea type
 		"deltype" ) ;; # Deletes an idea type
@@ -259,4 +339,3 @@ function doCommand() {
 }
 
 doCommand $@
-	
