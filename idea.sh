@@ -70,9 +70,11 @@ function doLsColor() {
 	{
 		res=substr($0, length($1) + 2)
 		res=gensub(/^(\(([A-Z])\))?/, "(\\\2)\t", "g", res)
+		res=gensub(/ ([\+][^ ]+)/,"\t\\\1", "", res)
+		res=gensub(/ ([@][^ ]+)/,"\t\\\1", "", res)
 		res=gensub(/^\(\)/, "(_)", "g", res)
-		res=gensub(/ ([\+][^ ]+)/,"\t"m"\\\1"c, "g", res)
-		res=gensub(/ ([@][^ ]+)/,"\t"p"\\\1"c, "g", res)
+		res=gensub(/([ \t])([\+][^ ]+)/,"\\\1"m"\\\2"c, "g", res)
+		res=gensub(/([ \t])([@][^ ]+)/,"\\\1"p"\\\2"c, "g", res)
 		printf $1"\t"c""res""n"\n"
 	}
 	{
@@ -105,16 +107,16 @@ function doNew() {
 	local newFilename="$(date +'%H.%M.%S').md"
 
 	echo "$title" > $subdir/$newFilename
-	vim +3 $subdir/$newFilename
+	$MARKDOWN_EDITOR $subdir/$newFilename
 }
 
 function replacePri() {
-	$sedInPlace -E -e "1s/^# (\([A-Z]\) )?/# $1/" ./$filename
+	sed -i -E -e "1s/^# (\([A-Z]\) )?/# $1/" ./$filename
 }
 
 function replace() {
 	title=$(echo "$@" | sed 's/\n//g')
-	$sedInPlace -E -e "1s/^# (\([A-Z]\))? .+$/# \\1 $title/" ./$filename
+	sed -i -E -e "1s/^# (\([A-Z]\))? .+$/# \\1 $title/" ./$filename
 }
 
 function doPri() {
@@ -163,7 +165,7 @@ function doIncpri() {
 }
 
 function doEdit() {
-	$EDITOR $filename
+	$MARKDOWN_EDITOR $filename
 }
 
 function doBrowse() {
@@ -186,7 +188,7 @@ function doBrowse() {
 	printLs
 	echo
 
-	read -p "💡  "$blue"❯"$none" " -e com
+	read -p "💡  "$blue"❯"$none"  " -e com
 
 	args=($com)
 
@@ -216,25 +218,42 @@ function printLs() {
 }
 
 function doStats() {
-	stats=$(echo "$lsResult" | $awk -v allCount=$allCount '
+	stats=$(echo "$lsResult" | $awk -v allCount=$allCount -v c=$COLUMNS '
+		function sortContexts(context1, count1, context2, count2) {
+			if (count1 < count2) {
+				return 1
+			} else if (count1 > count2) {
+				return -1
+			} else {
+				return 0
+			}
+		}
 		{
 			split($0, tokens, " ")
+			project=""
 			for (i=0; i < length(tokens); i++) {
 				token=tokens[i]
-				if (token ~ /^[\+]/) projects[token]++
-				else if (token ~ /^[@]/) contexts[token]++
+				if (token ~ /^[\+]/) {
+					project = token
+				}
+				else if (token ~ /^[@]/) contexts[project][token]++
 			}
 		}
 		END {
-			print ""
-			for (tag in projects) print projects[tag], tag
-			for (tag in contexts) print contexts[tag], tag
+			for (project in contexts) {
+				print project, "\n"
+				out=""
+				asorti(contexts[project], dest, "sortContexts")
+				for (i in dest) { out=out""contexts[project][dest[i]]" "dest[i]"\t" }
+					system("printf \""quote(out)"\n""\" | column -tx -s $'\''\t'\''") 
+				print ""
+			}
 			print "IDEA:", allCount, "Ideas", length(projects), "+Projects", length(contexts), "@Contexts"
 		}
-	' | sort -nrk 1,1)
+	')
 
 	local lastLine="$(echo "$stats" | tail -1)"
-	local rest=$(echo $stats | sed \$d | column -x)
+	local rest="$(echo "$stats" | head -n -1)"
 
 	echo "$rest"$'\n'"--"$'\n'"$lastLine" | $awk -v p=$purple -v m=$magenta -v n=$none '
 		{
@@ -246,7 +265,7 @@ function doStats() {
 }
 
 function doAppend() {
-	sedInPlace -E -e "1s/(.+)/\\1 $1/" ./$filename
+	sed -i -E -e "1s/(.+)/\\1 $1/" ./$filename
 }
 
 function doWatch() {
