@@ -1,8 +1,7 @@
-#! /usr/local/bin/bash
+#! /usr/bin/env bash
 
 platform='unknown'
 unamestr=`uname`
-browseCommands=()
 
 if [[ "$unamestr" == 'Linux' ]]; then
    platform='linux'
@@ -10,21 +9,23 @@ elif [[ "$unamestr" == 'Darwin' ]]; then
    platform='freebsd'
 fi
 
+
 if [[ "$platform" == "freebsd" ]]; then
-	alias awk=gawk
-	alias sedInPlace="sed -i '' "
+	awk="awk"
+	sedInPlace="sed -i ''"
 else
-	alias sedInPlace="sed -i "
+	sedInPlace="sed -i"
+	awk="awk"
 fi
 
-green='\033[01;32m'
-yellow='\033[01;33m'
-blue='\033[01;34m'
-purple='\033[01;35m'
-magenta='\033[01;31m'
-grey='\033[01;08m'
-none='\033[0m'
-reset='\033c'
+green=$'\033[01;32m'
+yellow=$'\033[01;33m'
+blue=$'\033[01;34m'
+purple=$'\033[01;35m'
+magenta=$'\033[01;31m'
+grey=$'\033[01;08m'
+none=$'\033[0m'
+reset=$'\033c'
 
 subdir="$(date +'%Y/%m/%d')"
 allCount=0
@@ -41,7 +42,7 @@ function mkSubdir() {
 
 function doLs() {
 	patterns=$(echo "$@" | sed 's/ /|/g')
-	lsResult="$(awk -v FNR=1 -v p=$patterns '
+	lsResult="$($awk -v FNR=1 -v p=$patterns '
 	{
 		m=1
 		split(p, patterns, "|")
@@ -64,7 +65,7 @@ function doLs() {
 }
 
 function doLsColor() {
-	lsOutput=`echo "$lsResult" | awk -v g=$green -v y=$yellow -v b=$blue -v p=$purple -v m=$magenta -v gg=$grey -v n=$none '
+	lsOutput=`echo "$lsResult" | $awk -v g=$green -v y=$yellow -v b=$blue -v p=$purple -v m=$magenta -v gg=$grey -v n=$none '
 	function printTokens(c)
 	{
 		res=substr($0, length($1) + 2)
@@ -108,16 +109,16 @@ function doNew() {
 }
 
 function replacePri() {
-	sedInPlace -E -e "1s/^# (\([A-Z]\) )?/# $1/" ./$filename
+	$sedInPlace -E -e "1s/^# (\([A-Z]\) )?/# $1/" ./$filename
 }
 
 function replace() {
 	title=$(echo "$@" | sed 's/\n//g')
-	sedInPlace -E -e "1s/^# (\([A-Z]\))? .+$/# \\1 $title/" ./$filename
+	$sedInPlace -E -e "1s/^# (\([A-Z]\))? .+$/# \\1 $title/" ./$filename
 }
 
 function doPri() {
-	local pri=`awk -v pri=$1 'BEGIN { if (toupper(pri) ~ /^[A-Z]$/) { print toupper(pri)} }'`
+	local pri=`$awk -v pri=$1 'BEGIN { if (toupper(pri) ~ /^[A-Z]$/) { print toupper(pri)} }'`
 
 	if [ -n "$pri" ]; then
 	 	replacePri "($pri) "
@@ -131,7 +132,7 @@ function doUnpri() {
 }
 
 function doDepri() {
-	local newPri=`awk -v NR=1 '
+	local newPri=`$awk -v NR=1 '
 		{
 			if ($2 ~ /^\(A\)$/) { printf "(B) " }
 			else if ($2 ~ /^\(B\)$/) { printf "(C) " }
@@ -146,7 +147,7 @@ function doDepri() {
 }
 
 function doIncpri() {
-	local newPri=`awk -v NR=1 '
+	local newPri=`$awk -v NR=1 '
 		{
 			if ($2 ~ /^\(A\)$/) { printf "(A) " }
 			else if ($2 ~ /^\(B\)$/) { printf "(A) " }
@@ -165,32 +166,9 @@ function doEdit() {
 	$EDITOR $filename
 }
 
-function printBrowsePrompt() {
-	local pre=""
-
-	if [[ "$1" == "true" ]]; then
-		pre+="\033[1K\r"
-	fi
-
-	shift
-
-	local prettyCom=$(echo "$@" | awk -v m=$magenta -v p=$purple -v spaceChar=$'\e0' '
-		{
-			$0=gensub(spaceChar, " ", "g", $0)
-			$0=gensub(/([\+][^ ]+)/, m"\\1"n, "g", $0)
-			$0=gensub(/([@][^ ]+)/, p"\\1"n, "g", $0)
-			print $0
-		}
-	')
-	printf $pre"💡  "$blue"❯"$none" $prettyCom"
-}
-
 function doBrowse() {
-	local commandIndex=${#browseCommands[@]}
-	local newChar=""
-	local lastChar=""
 	local com=""
-	local prettyArgs=$(echo "$@" | awk -v m=$magenta -v p=$purple -v n=$none -v spaceChar=$'\e0' '
+	local prettyArgs=$(echo "$@" | $awk -v m=$magenta -v p=$purple -v n=$none -v spaceChar=$'\e0' '
 		{
 			$0=gensub(spaceChar, " ", "g", $0)
 			$0=gensub(/([\+][^ ]+)/, m"\\1"n, "g", $0)
@@ -208,26 +186,10 @@ function doBrowse() {
 	printLs
 	echo
 
-	printBrowsePrompt "false" $com
+	read -p "💡  "$blue"❯"$none" " -e com
 
-	while IFS= read -r -n 1 -s newChar ; do
-		if [ -z "$newChar" ]; then
-			break
-		elif [[ $newChar == $'\x7f' ]]; then
-			if [ ! -z $com ]; then
-				com=${com::-1}
-			fi
-		elif [[ "$newChar" == " " ]]; then
-			com+=$'\e0'
-		else
-			com+=$newChar
-		fi
-		lastChar=$newChar
-		printBrowsePrompt "true" "$com"
-	done
-	local IFS=$'\e0'
 	args=($com)
-	IFS=$'\n'
+
 	case ${args[1]} in
 		"b"|"browse"|"l"|"ls" ) doBrowse ${args[@]} ;;
 		* ) doCommand ${args[@]} && doBrowse $@ ;;
@@ -235,7 +197,7 @@ function doBrowse() {
 }
 
 function doDelete() {
-	local title=`head -n 1 $filename | awk '{print substr($0, 3)}'`
+	local title=`head -n 1 $filename | $awk '{print substr($0, 3)}'`
 
 	echo "Are you sure you want to delete $title? "
 	read -r
@@ -250,11 +212,11 @@ function doDelete() {
 function printLs() {
 	echo "$lsOutput"
 	echo "--"
-	echo "IDEA: $resultCount of $allCount ideas shown\n"
+	echo "IDEA: $resultCount of $allCount ideas shown"
 }
 
 function doStats() {
-	stats=$(echo "$lsResult" | awk -v allCount=$allCount '
+	stats=$(echo "$lsResult" | $awk -v allCount=$allCount '
 		{
 			split($0, tokens, " ")
 			for (i=0; i < length(tokens); i++) {
@@ -274,7 +236,7 @@ function doStats() {
 	local lastLine="$(echo "$stats" | tail -1)"
 	local rest=$(echo $stats | sed \$d | column -x)
 
-	echo "$rest"$'\n'"--"$'\n'"$lastLine" | awk -v p=$purple -v m=$magenta -v n=$none '
+	echo "$rest"$'\n'"--"$'\n'"$lastLine" | $awk -v p=$purple -v m=$magenta -v n=$none '
 		{
 			$0=gensub(/([\+][^ \t]+)/, m"\\1"n, "g", $0)
 			$0=gensub(/([@][^ \t]+)/, p"\\1"n, "g", $0)
