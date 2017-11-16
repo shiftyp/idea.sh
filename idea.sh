@@ -108,7 +108,7 @@ function doNew() {
 	local title="# $@"
 	title+=$'\n'
 	title+=$'\n'
-	local newFilename="$(date +'%H.%M.%S').md"
+	local newFilename="$(date +'%H-%M-%S').md"
 
 	echo "$title" > $subdir/$newFilename
 	$MARKDOWN_EDITOR $subdir/$newFilename
