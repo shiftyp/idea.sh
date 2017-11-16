@@ -1,5 +1,9 @@
 #! /usr/bin/env bash
 
+if [ -n $IDEA_DIR ]; then
+	cd $IDEA_DIR
+fi
+
 platform='unknown'
 unamestr=`uname`
 
@@ -70,8 +74,8 @@ function doLsColor() {
 	{
 		res=substr($0, length($1) + 2)
 		res=gensub(/^(\(([A-Z])\))?/, "(\\\2)\t", "g", res)
-		res=gensub(/ ([\+][^ ]+)/,"\t\\\1", "", res)
-		res=gensub(/ ([@][^ ]+)/,"\t\\\1", "", res)
+		res=gensub(/ ([\+][^ ]+)/,"\t\\\1", 1, res)
+		res=gensub(/ ([@][^ ]+)/,"\t\\\1", 1, res)
 		res=gensub(/^\(\)/, "(_)", "g", res)
 		res=gensub(/([ \t])([\+][^ ]+)/,"\\\1"m"\\\2"c, "g", res)
 		res=gensub(/([ \t])([@][^ ]+)/,"\\\1"p"\\\2"c, "g", res)
@@ -134,7 +138,7 @@ function doUnpri() {
 }
 
 function doDepri() {
-	local newPri=`$awk -v NR=1 '
+	local newPri=`$awk -v FNR=1 '
 		{
 			if ($2 ~ /^\(A\)$/) { printf "(B) " }
 			else if ($2 ~ /^\(B\)$/) { printf "(C) " }
@@ -149,7 +153,7 @@ function doDepri() {
 }
 
 function doIncpri() {
-	local newPri=`$awk -v NR=1 '
+	local newPri=`$awk -v FNR=1 '
 		{
 			if ($2 ~ /^\(A\)$/) { printf "(A) " }
 			else if ($2 ~ /^\(B\)$/) { printf "(A) " }
@@ -218,8 +222,9 @@ function printLs() {
 }
 
 function doStats() {
-	stats=$(echo "$lsResult" | $awk -v allCount=$allCount -v c=$COLUMNS '
-		function sortContexts(context1, count1, context2, count2) {
+	local statsColumns=2
+	stats=$(echo "$lsResult" | $awk -v resultCount=$resultCount -v c=$statsColumns '
+		function sortProjects(context1, count1, context2, count2) {
 			if (count1 < count2) {
 				return 1
 			} else if (count1 > count2) {
@@ -236,19 +241,29 @@ function doStats() {
 				if (token ~ /^[\+]/) {
 					project = token
 				}
-				else if (token ~ /^[@]/) contexts[project][token]++
+				else if (token ~ /^[@]/) {
+					projects[project][token]++
+					contexts[token]++
+				}
 			}
 		}
 		END {
-			for (project in contexts) {
-				print project, "\n"
+			for (project in projects) {
+				print substr(project" ----------------------------------", 0, 40)"\n"
 				out=""
-				asorti(contexts[project], dest, "sortContexts")
-				for (i in dest) { out=out""contexts[project][dest[i]]" "dest[i]"\t" }
-					system("printf \""quote(out)"\n""\" | column -tx -s $'\''\t'\''") 
+				asorti(projects[project], dest, "sortProjects")
+				for (i in dest) {
+					if (i % c == 0) {
+						sep="\n"
+					} else {
+						sep="\t"
+					}
+					out=out""dest[i]" : "projects[project][dest[i]]""sep
+				}
+				system("printf \""out"\n""\" | column -t -s $'\''\t'\''") 
 				print ""
 			}
-			print "IDEA:", allCount, "Ideas", length(projects), "+Projects", length(contexts), "@Contexts"
+			print "IDEA:", resultCount, "Ideas", length(projects), "+Projects", length(contexts), "@Contexts"
 		}
 	')
 
